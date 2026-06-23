@@ -18,7 +18,6 @@ Authoritative style guide: [UCD-SERG Lab Manual](https://ucd-serg.github.io/lab-
 - `notebooks/` — supplementary Quarto notebooks embedded in the HTML output
 - `_quarto.yml` — Quarto project configuration
 - `_extensions/` — vendored Quarto extensions
-- `macros/` — git submodule for shortcode/macro definitions (see `.gitmodules`)
 - `R/`, `man/`, `DESCRIPTION`, `NAMESPACE` — the project is also a small R package
 - `references.bib` — BibTeX bibliography
 - `styles.css` — manuscript styling
@@ -39,7 +38,6 @@ Mirrors [`.github/copilot-instructions.md`](.github/copilot-instructions.md). Ke
 
 - **Don't edit generated files**: `README.md` is built from `README.Rmd`; `_manuscript/` and `_freeze/` are build outputs.
 - **Local preview**: `quarto preview` (live reload). Full build: `quarto render`. When verifying a single edited file, render just that file (`quarto render index.qmd --to html`) rather than the whole project.
-- **Submodules**: `macros/` is the only git submodule (see `.gitmodules`). Run `git submodule update --init --recursive` after cloning.
 - **Spell check**: words go in `inst/WORDLIST` (see `.github/workflows/check-spelling.yaml`). Update the wordlist instead of disabling the check.
 - **Link check**: tuned in `lychee.toml`; prefer fixing broken links over adding exceptions.
 

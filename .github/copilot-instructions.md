@@ -17,7 +17,6 @@ Authoritative style guide: [UCD-SERG Lab Manual](https://ucd-serg.github.io/lab-
 - `notebooks/` — supplementary Quarto notebooks embedded in the HTML output
 - `_quarto.yml` — Quarto project configuration
 - `_extensions/` — vendored Quarto extensions
-- `macros/` — git submodule for shortcode/macro definitions
 - `R/`, `man/`, `DESCRIPTION`, `NAMESPACE` — the project is also a small R package
 - `references.bib` — BibTeX bibliography
 - `styles.css` — manuscript styling
@@ -36,7 +35,6 @@ Authoritative style guide: [UCD-SERG Lab Manual](https://ucd-serg.github.io/lab-
 
 - **Don't edit generated files**: `README.md` is built from `README.Rmd`; `_manuscript/` and `_freeze/` are build outputs.
 - **Local preview**: `quarto preview` (live reload). Full build: `quarto render`.
-- **Submodules**: `macros/` is the only git submodule. Run `git submodule update --init --recursive` after cloning.
 - **Spell check**: words go in `inst/WORDLIST`. Update the wordlist instead of disabling the check.
 - **Link check**: tuned in `lychee.toml`; prefer fixing broken links over adding exceptions.
 

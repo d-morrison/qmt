@@ -38,7 +38,6 @@ A template for creating manuscripts with [Quarto](https://quarto.org/docs/manusc
    ```bash
    git clone https://github.com/YOUR-USERNAME/YOUR-REPO
    cd YOUR-REPO
-   git submodule update --init --recursive
    ```
 3. Install prerequisites:
    - [Quarto](https://quarto.org/docs/get-started/) (1.4 or later)
@@ -106,7 +105,6 @@ qmt/
 │   └── supplementary-analysis.qmd  # Supplementary notebooks
 ├── _quarto.yml                 # Quarto project configuration
 ├── _extensions/                # Vendored Quarto extensions
-├── macros/                     # Macro shortcodes (git submodule)
 ├── R/                          # R package source
 ├── references.bib              # BibTeX bibliography
 ├── styles.css                  # Custom CSS

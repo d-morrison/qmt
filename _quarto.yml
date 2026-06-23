@@ -5,10 +5,6 @@ project:
     - "*.qmd"
     - "notebooks/*.qmd"
     - "!README.md"
-    # The `macros` git submodule provides macro definitions for include/
-    # shortcode use, not standalone rendered pages. Don't render its .qmd
-    # files directly.
-    - "!macros/"
 
 manuscript:
   article: index.qmd
