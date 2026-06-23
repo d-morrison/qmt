@@ -1,0 +1,16 @@
+# Quarto build output
+_manuscript/
+_freeze/
+.quarto/
+
+# R package artifacts
+*.Rproj.user
+*.Rhistory
+*.RData
+*.Ruserdata
+
+# macOS
+.DS_Store
+
+# PR preview screenshots
+assets/pr-screenshots/

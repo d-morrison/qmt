@@ -1,0 +1,117 @@
+# GitHub Copilot Setup Steps for qmt
+#
+# This workflow configures the GitHub Copilot coding agent's environment
+# by preinstalling R, Quarto, TinyTeX, and system dependencies.
+#
+# See: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/customize-the-agent-environment
+
+name: "Copilot Setup Steps"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  # The job MUST be called `copilot-setup-steps` or it will not be picked up by Copilot.
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      pull-requests: read
+
+    # Timeout after 55 minutes (max is 59 for copilot-setup-steps)
+    timeout-minutes: 55
+
+    steps:
+      - name: Check if setup should be skipped
+        id: check_label
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LABELS_CONTAIN_SKIP: ${{ contains(github.event.pull_request.labels.*.name, 'skip-cp-setup') }}
+        shell: bash
+        run: |
+          if [[ "$EVENT_NAME" != 'pull_request' ]]; then
+            echo "Not a pull request, running full setup"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$LABELS_CONTAIN_SKIP" == 'true' ]]; then
+            echo "skip-cp-setup label present, skipping setup steps"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip-cp-setup label not present, running full setup"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install system dependencies
+        if: steps.check_label.outputs.skip != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libcurl4-openssl-dev \
+            libssl-dev \
+            libxml2-dev \
+            libfontconfig1-dev \
+            libharfbuzz-dev \
+            libfribidi-dev \
+            libfreetype6-dev \
+            libpng-dev \
+            libtiff5-dev \
+            libjpeg-dev \
+            libglpk-dev \
+            poppler-utils \
+            tesseract-ocr \
+            tesseract-ocr-eng \
+            maxima \
+            python3-pip
+
+      - name: Set up Pandoc
+        if: steps.check_label.outputs.skip != 'true'
+        uses: r-lib/actions/setup-pandoc@v2
+
+      - name: Set up R
+        if: steps.check_label.outputs.skip != 'true'
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: 'release'
+          use-public-rspm: true
+
+      - name: Install R packages
+        if: steps.check_label.outputs.skip != 'true'
+        run: |
+          install.packages(
+            c("lintr", "rmarkdown", "ggplot2", "dplyr"),
+            repos = "https://packagemanager.posit.co/cran/__linux__/noble/latest"
+          )
+        shell: Rscript {0}
+
+      - name: Set up Quarto
+        if: steps.check_label.outputs.skip != 'true'
+        uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          tinytex: true
+
+      - name: Verify development environment
+        if: steps.check_label.outputs.skip != 'true'
+        run: |
+          echo "=== Development Environment Status ==="
+
+          Rscript -e 'cat("R version:", R.version.string, "\n")'
+
+          echo ""
+          echo "=== Quarto Status ==="
+          quarto --version
+          quarto list tools
+
+          echo ""
+          echo "Development environment setup complete!"

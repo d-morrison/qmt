@@ -1,0 +1,194 @@
+---
+output: github_document
+---
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "man/figures/README-",
+  out.width = "100%"
+)
+```
+
+# qmt: Quarto Manuscript Template
+
+A template for creating manuscripts with [Quarto](https://quarto.org/docs/manuscripts/).
+
+## Features
+
+- **Multiple output formats**: HTML, PDF, DOCX, and JATS XML for journal submission
+- **Supplementary notebooks**: embed computational notebooks alongside the main article
+- **Bibliography support**: BibTeX integration with DOI validation
+- **Automated checks**: spell check, link validation, and R linting via GitHub Actions
+- **PR previews**: rendered previews of pull request changes
+- **Claude Code integration**: automated code review via the `@claude` mention
+- **GitHub Copilot integration**: preconfigured Copilot agent environment
+- **Custom CSS**: theorem and proof environments via Quarto extensions
+- **MECA bundle**: automatic creation of MECA archive for journal submission
+
+## Quick start
+
+### Use this template
+
+1. Click **Use this template** on GitHub to create a new repository
+2. Clone your new repository:
+   ```bash
+   git clone https://github.com/YOUR-USERNAME/YOUR-REPO
+   cd YOUR-REPO
+   git submodule update --init --recursive
+   ```
+3. Install prerequisites:
+   - [Quarto](https://quarto.org/docs/get-started/) (1.4 or later)
+   - [R](https://cran.r-project.org/) (4.1 or later)
+   - [TinyTeX](https://yihui.org/tinytex/) for PDF output: `quarto install tinytex`
+4. Install R dependencies:
+   ```r
+   install.packages(c("knitr", "rmarkdown", "ggplot2", "dplyr"))
+   ```
+
+### Customize
+
+1. **Update author information**: Edit the YAML front matter in `index.qmd` — name, ORCID, affiliations, and email
+2. **Update the description**: Edit `DESCRIPTION` with the manuscript title and your contact
+3. **Add your content**: Replace placeholder text in `index.qmd` with your manuscript
+4. **Add supplementary material**: Create `.qmd` files in `notebooks/` and register them in `_quarto.yml`
+5. **Add references**: Update `references.bib` with your citations
+6. **Update the config**: Edit `_quarto.yml` to adjust output formats and settings
+
+## Building
+
+To preview the manuscript with live reload:
+
+```bash
+quarto preview
+```
+
+To render all formats:
+
+```bash
+quarto render
+```
+
+To render a single format:
+
+```bash
+quarto render index.qmd --to pdf
+quarto render index.qmd --to docx
+quarto render index.qmd --to jats
+```
+
+The rendered output goes to `_manuscript/`.
+
+## Publishing to GitHub Pages
+
+This template includes a GitHub Actions workflow that builds and publishes
+the HTML version to GitHub Pages when you push to `main`.
+
+To enable GitHub Pages:
+
+1. Go to your repository settings
+2. Navigate to "Pages" in the left sidebar
+3. Under "Build and deployment", set Source to "GitHub Actions"
+4. Push your changes to the main branch
+5. The workflow builds and deploys automatically
+
+Your manuscript will be available at `https://YOUR-USERNAME.github.io/YOUR-REPO/`.
+
+## Project structure
+
+```
+qmt/
+├── index.qmd                   # Main manuscript article
+├── notebooks/
+│   └── supplementary-analysis.qmd  # Supplementary notebooks
+├── _quarto.yml                 # Quarto project configuration
+├── _extensions/                # Vendored Quarto extensions
+├── macros/                     # Macro shortcodes (git submodule)
+├── R/                          # R package source
+├── references.bib              # BibTeX bibliography
+├── styles.css                  # Custom CSS
+├── lychee.toml                 # Link checker configuration
+├── DESCRIPTION                 # R package metadata
+└── .github/
+    ├── workflows/              # CI/CD workflows
+    └── scripts/                # Helper scripts
+```
+
+## GitHub Actions workflows
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `publish.yml` | Push to `main` | Build and deploy to GitHub Pages |
+| `preview.yml` | Pull request | PR preview with change highlighting |
+| `check-spelling.yaml` | Push/PR to `main` | Spell check |
+| `check-links.yml` | Push/PR/weekly | Link validation |
+| `lint-project.yaml` | Push/PR | R code linting |
+| `lint-changed-files.yaml` | Pull request | Lint only changed R files |
+| `check-bibliography-dois.yml` | Push/PR | Validate BibTeX DOIs |
+| `check-non-standard-chars.yaml` | Push/PR | Detect curly quotes and em-dashes |
+| `claude.yml` | `@claude` mentions | Claude Code agent |
+| `claude-code-review.yml` | Pull request | Automated code review |
+| `copilot-setup-steps.yml` | Copilot agent | Preconfigure Copilot environment |
+| `summary.yml` | New issue | AI issue summary |
+
+## Writing content
+
+### Citations
+
+Add entries to `references.bib` and cite with `@key` or `[@key]`:
+
+```markdown
+See @example2024 for background, or for details see [@example-article2024].
+```
+
+### Cross-references
+
+Reference figures, tables, and sections:
+
+```markdown
+See @fig-my-figure for results (defined with `#| label: fig-my-figure`).
+The methods are in @sec-methods (defined with `# Methods {#sec-methods}`).
+```
+
+### Supplementary notebooks
+
+Embed results from a supplementary notebook in the main article:
+
+```markdown
+{{< embed notebooks/supplementary-analysis.qmd#tbl-data-head >}}
+```
+
+### Theorem environments
+
+Use the callouty-theorem extension for mathematical environments:
+
+```markdown
+::: {#thm-main .thm}
+Let $X$ be a random variable...
+:::
+
+::: {.proof}
+We proceed by contradiction...
+:::
+```
+
+## Customizing for a target journal
+
+Different journals require different formats. Quarto supports
+journal-specific templates:
+
+```bash
+quarto use template quarto-journals/jss
+quarto use template quarto-journals/plos
+quarto use template quarto-journals/elsevier
+```
+
+See the [Quarto journal templates](https://quarto.org/docs/journals/) for
+the full list.
+
+## License
+
+This template is released under the [MIT License](LICENSE).

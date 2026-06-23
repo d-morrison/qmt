@@ -1,0 +1,382 @@
+# Claude Code GitHub Action (agent mode)
+#
+# Responds to "@claude" mentions in issues, issue comments, PR review
+# comments, and PR reviews. Requires the CLAUDE_CODE_OAUTH_TOKEN secret.
+#
+# Ported from d-morrison/rme and qwt; adapted to qmt's manuscript setup.
+# Project guidance for Claude lives in CLAUDE.md at the repo root.
+
+name: Claude Code
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened]
+  pull_request_review:
+    types: [submitted]
+
+concurrency:
+  group: claude-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association)) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: write
+
+    steps:
+      - name: Skip if this comment was already handled by an active run
+        id: dedup
+        continue-on-error: true
+        if: github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request_review_comment" ]; then
+            ENDPOINT="repos/$REPO/pulls/comments/$COMMENT_ID/reactions"
+          else
+            ENDPOINT="repos/$REPO/issues/comments/$COMMENT_ID/reactions"
+          fi
+          MARKED=$(gh api "$ENDPOINT" \
+            --jq '[.[] | select(.content == "rocket" and .user.login == "github-actions[bot]")] | length' \
+            2>/dev/null || echo 0)
+          if [ "$MARKED" != "0" ]; then
+            echo "Comment $COMMENT_ID already carries the 🚀 handled-marker; skipping this duplicate run."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Acknowledge @claude mention
+        if: steps.dedup.outputs.skip != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUM: ${{ github.event.issue.number || github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment "$NUM" --repo "${{ github.repository }}" \
+            --body ":eyes: Picked up by [workflow run #${{ github.run_id }}]($RUN_URL). R/Quarto setup runs first; Claude itself responds after that."
+
+      - name: Checkout repository
+        if: steps.dedup.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Set up Quarto
+        if: steps.dedup.outputs.skip != 'true'
+        uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          tinytex: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: r-lib/actions/setup-r@v2
+        if: steps.dedup.outputs.skip != 'true'
+        with:
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        if: steps.dedup.outputs.skip != 'true'
+        with:
+          packages: |
+            any::knitr
+            any::rmarkdown
+            any::tibble
+            any::ggplot2
+
+      - name: Capture PR head SHA before Claude
+        id: head_before
+        if: |
+          steps.dedup.outputs.skip != 'true' &&
+          (github.event.pull_request.number || github.event.issue.pull_request)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number }}"
+          SHA=$(gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER" --jq '.head.sha')
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Set up branch for issue trigger
+        id: issue_branch
+        if: |
+          steps.dedup.outputs.skip != 'true' &&
+          (
+            github.event_name == 'issues' ||
+            (github.event_name == 'issue_comment' && !github.event.issue.pull_request)
+          )
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          BRANCH="claude/issue-${ISSUE_NUMBER}-$(date -u +%Y%m%d-%H%M%S)"
+          git checkout -b "$BRANCH"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "starting_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Created and switched to $BRANCH"
+
+      - name: Run Claude Code
+        id: claude
+        if: steps.dedup.outputs.skip != 'true'
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You were triggered by an @claude mention in a
+            ${{ github.event_name }} event. Address the request in the
+            triggering comment / issue / review.
+
+            Git & PR handling (a workflow step does the pushing/PR-opening,
+            not you):
+            - **Issue triggers**: a fresh `claude/issue-N-<timestamp>`
+              branch has already been created and checked out for you. Make
+              your edits and `git commit` them. Do NOT create another branch
+              and do NOT run `gh pr create` — a post-step pushes this branch
+              and opens a draft PR linking back to the issue.
+            - **PR triggers**: commit your changes; they belong on the PR's
+              branch. A post-step dispatches a code review when the head SHA
+              moves.
+
+            If your reply is **prose** (answering a question, a
+            recommendation, a review) rather than a code change, write your
+            final message as the reply you want posted on the thread — a
+            post-step posts it as a comment when you didn't commit code.
+
+            For an explicit `@claude review` request, do NOT post your own
+            review; a post-step dispatches the dedicated code-review
+            workflow instead.
+
+            **Before declaring the task complete, check for additional
+            @claude requests that arrived after the triggering event.**
+
+            This run was triggered by a `${{ github.event_name }}` event.
+            Pre-resolved context (don't re-derive these):
+            - PR context? `${{ (github.event.pull_request.number || github.event.issue.pull_request) && 'yes' || 'no' }}`
+            - Entity number: `${{ github.event.issue.number || github.event.pull_request.number }}`
+            - Triggering timestamp: `${{ github.event.comment.created_at || github.event.review.submitted_at || github.event.issue.created_at }}`
+
+            1. Fetch the endpoint(s) that apply to your trigger type:
+               ```
+               gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number || github.event.pull_request.number }}/comments --paginate
+               gh api repos/${{ github.repository }}/pulls/${{ github.event.issue.number || github.event.pull_request.number }}/comments --paginate
+               gh api repos/${{ github.repository }}/pulls/${{ github.event.issue.number || github.event.pull_request.number }}/reviews  --paginate
+               ```
+
+            2. Keep entries where ALL hold: the relevant timestamp is strictly
+               after the triggering timestamp; the text contains `@claude`;
+               and `user.type` is not `"Bot"`.
+
+            3. If any match, address each in chronological order, then repeat
+               from step 1. Stop when none remain, or after at most **5**
+               polling iterations.
+
+            4. Mark each absorbed comment with a 🚀 reaction to prevent
+               duplicate handling:
+               ```
+               gh api repos/${{ github.repository }}/issues/comments/<id>/reactions -f content=rocket
+               gh api repos/${{ github.repository }}/pulls/comments/<id>/reactions  -f content=rocket
+               ```
+
+          claude_args: |
+            --allowedTools "Bash(Rscript -e 'lintr::lint*'),Bash(Rscript -e 'devtools::check*'),Bash(Rscript -e 'devtools::document*'),Bash(quarto render:*),Bash(quarto check:*),Bash(git diff:*),Bash(git log:*),Bash(git status:*),Bash(git show:*),Bash(git checkout:*),Bash(git switch:*),Bash(git branch:*),Bash(git add:*),Bash(git commit:*),Bash(git push origin:*),Bash(git push -u origin:*),Bash(gh api repos/${{ github.repository }}/:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh issue view:*),Read,Glob,Grep,Edit,MultiEdit,Write" --disallowedTools "Bash(git push --force:*),Bash(git push -f:*),Bash(git push --delete:*),Bash(git push -d:*),Bash(git push --mirror:*),Bash(git push --tags:*),Bash(git push --all:*),Bash(git push origin +*),Bash(git push -u origin +*),Bash(gh api -X:*),Bash(gh api --method:*)"
+
+      - name: Capture PR head SHA after Claude
+        id: head_after
+        if: |
+          always() &&
+          steps.dedup.outputs.skip != 'true' &&
+          (github.event.pull_request.number || github.event.issue.pull_request)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number }}"
+          SHA=$(gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER" --jq '.head.sha')
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Post Claude's response if no code was committed
+        if: |
+          always() &&
+          steps.dedup.outputs.skip != 'true' &&
+          steps.claude.outcome == 'success' &&
+          !(
+            (
+              contains(github.event.comment.body, '@claude review') ||
+              contains(github.event.review.body, '@claude review')
+            ) &&
+            (github.event.pull_request.number || github.event.issue.pull_request)
+          )
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ENTITY_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          ISSUE_BRANCH_STARTING_SHA: ${{ steps.issue_branch.outputs.starting_sha }}
+          PR_HEAD_BEFORE: ${{ steps.head_before.outputs.sha }}
+          PR_HEAD_AFTER: ${{ steps.head_after.outputs.sha }}
+        run: |
+          COMMITTED=false
+          if [ -n "$ISSUE_BRANCH_STARTING_SHA" ]; then
+            [ "$(git rev-parse HEAD)" != "$ISSUE_BRANCH_STARTING_SHA" ] && COMMITTED=true
+          fi
+          if [ -n "$PR_HEAD_BEFORE" ] && [ -n "$PR_HEAD_AFTER" ] && [ "$PR_HEAD_AFTER" != "$PR_HEAD_BEFORE" ]; then
+            COMMITTED=true
+          fi
+          if [ "$COMMITTED" = "true" ]; then
+            echo "Claude committed code; commits are the deliverable, skipping response-text post."
+            exit 0
+          fi
+
+          FILE="${EXECUTION_FILE:-/home/runner/work/_temp/claude-execution-output.json}"
+          if [ ! -f "$FILE" ]; then
+            echo "::warning::No Claude execution output at $FILE; nothing to post."
+            exit 0
+          fi
+
+          ASSISTANT_COUNT=$(jq -rs 'flatten(1) | [.[] | select(type == "object" and .type == "assistant")] | length' < "$FILE")
+          if [ "$ASSISTANT_COUNT" = "0" ]; then
+            echo "::warning::No assistant-typed events in $FILE. Nothing to post."
+            exit 0
+          fi
+          RESPONSE=$(jq -rs '
+            flatten(1)
+            | [.[] | select(type == "object" and .type == "assistant")]
+            | last
+            | (.message.content // [])
+            | map(select(.type == "text") | .text)
+            | join("\n\n")
+          ' < "$FILE")
+          if [ -z "$RESPONSE" ] || [ "$RESPONSE" = "null" ]; then
+            echo "::warning::Assistant events present but no text content; nothing to post."
+            exit 0
+          fi
+
+          MAX_LEN=60000
+          BYTE_LEN=$(printf '%s' "$RESPONSE" | wc -c)
+          if [ "$BYTE_LEN" -gt "$MAX_LEN" ]; then
+            RESPONSE="$(printf '%s' "$RESPONSE" | head -c "$MAX_LEN" | iconv -f UTF-8 -t UTF-8 -c)
+
+          … (response truncated at ${MAX_LEN} bytes; full text in the [workflow run](${RUN_URL}))"
+          fi
+
+          BODY="$(printf '%s\n\n<sub>— posted by @claude post-step from [workflow run](%s)</sub>\n' "$RESPONSE" "$RUN_URL")"
+          if [ "${{ github.event_name }}" = "pull_request_review_comment" ]; then
+            if jq -n --arg b "$BODY" '{body: $b}' \
+                 | gh api --method POST "repos/${{ github.repository }}/pulls/$ENTITY_NUMBER/comments/${{ github.event.comment.id }}/replies" --input - >/dev/null; then
+              exit 0
+            fi
+            echo "::warning::In-thread reply failed; falling back to a top-level comment."
+          fi
+          gh issue comment "$ENTITY_NUMBER" --repo "${{ github.repository }}" --body "$BODY" \
+            || echo "::warning::Could not post Claude's response back to the source thread."
+
+      - name: Dispatch claude-code-review.yml on @claude review comment
+        if: |
+          always() &&
+          steps.dedup.outputs.skip != 'true' &&
+          (github.event.pull_request.number || github.event.issue.pull_request) &&
+          (
+            contains(github.event.comment.body, '@claude review') ||
+            contains(github.event.review.body, '@claude review')
+          )
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number }}"
+          echo "Dispatching claude-code-review.yml for PR #$PR_NUMBER (@claude review comment)."
+          gh workflow run claude-code-review.yml -f pr_number="$PR_NUMBER" \
+            || echo "::warning::Could not dispatch claude-code-review.yml; review will not auto-run."
+
+      - name: Dispatch code review if Claude pushed commits
+        if: |
+          always() &&
+          steps.dedup.outputs.skip != 'true' &&
+          (github.event.pull_request.number || github.event.issue.pull_request) &&
+          steps.head_before.outputs.sha != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA_BEFORE: ${{ steps.head_before.outputs.sha }}
+          SHA_AFTER: ${{ steps.head_after.outputs.sha }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number }}"
+          echo "before=$SHA_BEFORE  after=$SHA_AFTER"
+          if [ -n "$SHA_AFTER" ] && [ "$SHA_AFTER" != "$SHA_BEFORE" ]; then
+            echo "Claude pushed new commits; dispatching code review."
+            gh workflow run claude-code-review.yml -f pr_number="$PR_NUMBER" \
+              || echo "::warning::Could not dispatch claude-code-review.yml."
+          else
+            echo "No new commits on PR head; skipping review dispatch."
+          fi
+
+      - name: Push branch and open draft PR for issue trigger
+        if: |
+          always() &&
+          steps.dedup.outputs.skip != 'true' &&
+          steps.issue_branch.outputs.branch != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.issue_branch.outputs.branch }}
+          STARTING_SHA: ${{ steps.issue_branch.outputs.starting_sha }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name "claude[bot]"
+            git config user.email "claude[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "chore: auto-commit residual staged/untracked changes from @claude session" \
+              || { echo "::error::auto-commit of residual @claude changes failed"; exit 1; }
+          fi
+          CURRENT_SHA=$(git rev-parse HEAD)
+          if [ "$CURRENT_SHA" = "$STARTING_SHA" ]; then
+            echo "No new commits on $BRANCH — Claude produced no changes; skipping push/PR."
+            exit 0
+          fi
+          echo "Pushing $BRANCH ($STARTING_SHA -> $CURRENT_SHA)"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" "$BRANCH"
+          EXISTING=$(gh pr list --head "$BRANCH" --state open --json url --jq '.[0].url // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "PR already exists for $BRANCH: $EXISTING"
+            PR_URL="$EXISTING"
+            PR_VERB="pushed new commits to existing draft PR"
+          else
+            PR_BODY=$(printf 'Draft PR opened by `@claude` to address #%s.\n\nTriggered by [workflow run](%s).\n\nAddresses #%s.\n' \
+              "$ISSUE_NUMBER" "$RUN_URL" "$ISSUE_NUMBER")
+            if [ -z "$ISSUE_TITLE" ]; then
+              PR_TITLE="Claude response to issue #${ISSUE_NUMBER}"
+            else
+              PR_TITLE="$ISSUE_TITLE"
+            fi
+            PR_URL=$(gh pr create \
+              --base "${{ github.event.repository.default_branch }}" \
+              --head "$BRANCH" \
+              --draft \
+              --title "$PR_TITLE" \
+              --body "$PR_BODY")
+            echo "Opened draft PR: $PR_URL"
+            PR_VERB="opened draft PR"
+          fi
+          gh workflow run claude-code-review.yml -f pr_number="${PR_URL##*/}" \
+            || echo "::warning::Could not dispatch claude-code-review.yml."
+          gh issue comment "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
+            --body "Pushed Claude's commits to \`${BRANCH}\` and ${PR_VERB}: ${PR_URL}" \
+            || echo "::warning::Could not post PR link as issue comment."
