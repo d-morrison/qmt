@@ -13,6 +13,13 @@ manuscript:
     - notebook: notebooks/supplementary-analysis.qmd
       title: "Supplementary Analysis"
 
+# GitHub repo — update this when using the template in a new repo.
+# Drives the "Edit this page" / "View source" links and the GitHub icon
+# in the title banner (injected by _repo-links.lua).
+repo-url: https://github.com/d-morrison/qmt
+repo-actions: [edit, source]
+
+
 bibliography: references.bib
 
 editor_options:
@@ -120,6 +127,7 @@ filters:
 format:
   html:
     filters:
+      - _repo-links.lua
       - sun123zxy/callouty-theorem
       - coatless-quarto/custom-callout
     theme:
