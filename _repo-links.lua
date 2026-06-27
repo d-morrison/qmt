@@ -1,5 +1,8 @@
 -- _repo-links.lua
 -- Injects GitHub repository action links into Quarto manuscript HTML output.
+-- WORKAROUND: quarto-dev/quarto-cli#14627 — manuscript projects do not inherit
+-- base-website schema, so repo-url/repo-actions are silently ignored. Remove
+-- this filter once Quarto adds native support.
 --
 -- Configure in _quarto.yml (update repo-url when using the template):
 --   repo-url: https://github.com/owner/repo
